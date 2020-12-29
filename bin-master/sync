@@ -1,0 +1,3 @@
+#!/bin/bash
+
+node-workers | xargs -I {} rsync -avr /root/project root@{}:/root/
