@@ -22,6 +22,16 @@ RUN chmod 600 /root/.ssh/id_ecdsa
 
 COPY bin-master/* /usr/local/bin/
 
+# Embree
+#
+# Download Embree manually:
+# wget https://github.com/embree/embree/releases/download/v3.12.1/embree-3.12.1.x86_64.linux.tar.gz
+#
+#RUN apt-get install -y wget
+COPY embree-3.12.1.x86_64.linux.tar.gz /opt
+RUN cd /opt && tar xzf embree-3.12.1.x86_64.linux.tar.gz
+RUN echo "source /opt/embree-3.12.1.x86_64.linux/embree-vars.sh" >> /root/.profile
+
 WORKDIR /root
 CMD ["tcpserver", "-HRDl0", "0.0.0.0", "22", "/usr/sbin/tinysshd", "-v", "/etc/tinyssh/sshkeydir"]
 
