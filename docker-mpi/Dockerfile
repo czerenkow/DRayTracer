@@ -24,11 +24,11 @@ COPY bin-master/* /usr/local/bin/
 
 # Embree
 #
-# Download Embree manually:
+# Also you download Embree manually:
 # wget https://github.com/embree/embree/releases/download/v3.12.1/embree-3.12.1.x86_64.linux.tar.gz
-#
-#RUN apt-get install -y wget
-COPY embree-3.12.1.x86_64.linux.tar.gz /opt
+# and instead of ADD use this one:
+#COPY embree-3.12.1.x86_64.linux.tar.gz /opt/
+ADD https://github.com/embree/embree/releases/download/v3.12.1/embree-3.12.1.x86_64.linux.tar.gz /opt
 RUN cd /opt && tar xzf embree-3.12.1.x86_64.linux.tar.gz
 RUN echo "source /opt/embree-3.12.1.x86_64.linux/embree-vars.sh" >> /root/.profile
 

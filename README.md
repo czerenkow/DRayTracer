@@ -12,12 +12,15 @@ make
 Two binaries are built: DRayTracer and DRayTracerMPI. The first is single-host version, and the latter can be run in the MPI environment.
 
 ## Setup MPI cluster
-Details are described here https://github.com/czerenkow/docker-mpi, however this version includes Embree and this requires manually download this library.
+Details are described here https://github.com/czerenkow/docker-mpi, and this version additionally includes Embree. Only what you need to do is:
 ```
-cd docker-mpi
-./download-embree.sh
+docker-compose build
+docker-compose push
+
 ```
-This downloads embree-3.12.1.x86_64.linux.tar.gz which is required by Dockerfile. All next steps are the same as in not modified docker-mpi. Copy the binary `DRayTracerMPI` to `DRayTracer/docker-mpi/project` and then, on docker-mpi claster, you can run the program this way:
+If you need to experiment with Dockerfile, you can download Embree once `cd docker-mpi && ./download-embree.sh` and modify Dockerfile (details inside) in order to COPY embree-3.12.1.x86_64.linux.tar.gz  instead of downloading using ADD command every time.
+
+Copy the binary `DRayTracerMPI` to `DRayTracer/docker-mpi/project` and then, on docker-mpi claster, you can run the program this way:
 ```
 mpiexec -f machinefile -n 3 project/DRayTracerMPI
 ```
