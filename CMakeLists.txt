@@ -34,6 +34,7 @@ add_executable(DRayTracer
     renderer.cpp
     image.cpp
     random.cpp
+    scene.cpp
     main.cpp
 )
 target_link_libraries(DRayTracer PRIVATE embree)
@@ -49,6 +50,7 @@ target_sources(DRayTracerMPI PRIVATE
     renderer.cpp
     image.cpp
     random.cpp
+    scene.cpp
     main-mpi.cpp
 )
 target_compile_definitions(DRayTracerMPI PRIVATE BUILD_TIME=${BUILD_TIME})
