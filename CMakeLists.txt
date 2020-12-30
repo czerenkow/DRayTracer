@@ -30,9 +30,11 @@ find_package(MPI REQUIRED)
 find_package(OpenMP REQUIRED)
 
 add_executable(DRayTracer
-    main.cpp
+    raytracer.cpp
     renderer.cpp
     image.cpp
+    random.cpp
+    main.cpp
 )
 target_link_libraries(DRayTracer PRIVATE embree)
 #target_link_libraries(DRayTracer PRIVATE tbb)
@@ -43,8 +45,10 @@ target_link_libraries(DRayTracer PRIVATE OpenMP::OpenMP_CXX)
 #################################################################
 add_executable(DRayTracerMPI)
 target_sources(DRayTracerMPI PRIVATE
-    image.cpp
+    raytracer.cpp
     renderer.cpp
+    image.cpp
+    random.cpp
     main-mpi.cpp
 )
 target_compile_definitions(DRayTracerMPI PRIVATE BUILD_TIME=${BUILD_TIME})
@@ -66,6 +70,6 @@ target_link_libraries(DRayTracerMPI PRIVATE MPI::MPI_CXX)
 
 #################################################################
 
-install(TARGETS DRayTracerMPI
-        CONFIGURATIONS Release
-        RUNTIME DESTINATION /home/universe.dart.spb/pwoloszkiewicz/workspace/docker-mpi/project)
+#install(TARGETS DRayTracerMPI
+#        CONFIGURATIONS Release
+#        RUNTIME DESTINATION /home/universe.dart.spb/pwoloszkiewicz/workspace/docker-mpi/project)
