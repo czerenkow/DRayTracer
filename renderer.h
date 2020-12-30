@@ -1,14 +1,15 @@
 #pragma once
 
-class Renderer;
+struct Renderer;
 
-namespace DRenderer {
-
-Renderer* create();
-void destroy(Renderer* r);
-int numberOfTiles();
-void render(Renderer* r);
-void renderTile(Renderer* r, int tile_id);
-void writeImage(Renderer* r);
-
-}
+class DRenderer {
+public:
+    DRenderer();
+    ~DRenderer();
+    static int numberOfTiles();
+    void renderAllTiles();
+    void renderTile(int tile_id);
+    void writeImage();
+private:
+    Renderer* r;
+};

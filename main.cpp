@@ -2,9 +2,8 @@
 #include "renderer.h"
 
 int main() {
-    Renderer *r = DRenderer::create();
-    DRenderer::render(r);
-    DRenderer::destroy(r);
+    DRenderer r;
+    r.renderAllTiles();
     return 0;
 }
 

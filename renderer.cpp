@@ -6,6 +6,8 @@
 //#include <execution>
 //#include <tbb/tbb.h>
 
+#include "renderer.h" // inteface to this module
+
 #include "image.h"
 #include "utils.h"
 #include "raytracer.h"
@@ -16,7 +18,6 @@
 
 using std::cout;
 using std::endl;
-
 
 
 struct Renderer {
@@ -116,32 +117,34 @@ struct Renderer {
     }
 };
 
-//=========================================================
-#include "renderer.h"
-namespace DRenderer {
 
-Renderer* create() {
-    return new Renderer{};
+
+
+//========================================
+// class DRenderer
+// Simple interface to Renderer class.
+//========================================
+
+DRenderer::DRenderer(): r{new Renderer{}}
+{
 }
 
-void destroy(Renderer* r) {
+DRenderer::~DRenderer() {
     delete r;
 }
 
-int numberOfTiles() {
+int DRenderer::numberOfTiles() {
     return tiles_rows*tiles_columns;
 }
 
-void renderTile(Renderer* r, int tile_id) {
-    r->renderTile(tile_id);
-}
-
-void render(Renderer* r) {
+void DRenderer::renderAllTiles() {
     r->render();
 }
 
-void writeImage(Renderer* r) {
-    r->writeImage("output.bmp");
+void DRenderer::renderTile(int tile_id) {
+    r->renderTile(tile_id);
 }
 
-} // namespace: DRenderer
+void DRenderer::writeImage() {
+    r->writeImage("output.bmp");
+}

@@ -86,27 +86,9 @@ int msleep(long msec)
     return res;
 }
 
-
-
 std::mutex debug_output;
 
 using Task = std::function<void(int)>;
-
-//struct Task {
-//    std::function<void(int)> task;
-
-//    Task() {}
-//    Task(std::function<void(int)> task): task{task} {}
-
-//    void execute(int thread_id) {
-//        task(thread_id);
-//    }
-
-//    bool isTaskNull() {
-//        return task == nullptr;
-//    }
-//};
-
 
 
 class ThreadPool {
@@ -383,8 +365,6 @@ public:
 
 
 
-
-
 int rayTracerMPI()
 {
     // Initialize the MPI environment. The two arguments to MPI Init are not
@@ -400,18 +380,10 @@ int rayTracerMPI()
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-    // We are assuming 2 processes for this task
-    // if (world_size != 3) {
-    //   abort_msg("World size must is wrong");
-    // }
-
-    // // Get the name of the processor
+    // Get the name of the processor
     char processor_name[MPI_MAX_PROCESSOR_NAME];
     int name_len;
     MPI_Get_processor_name(processor_name, &name_len);
-
-    // int task_id = 0;
-    // const task_id_max = 10;
 
     std::vector<WorkerInfo> workers;
     if (world_rank == 0)
@@ -466,7 +438,7 @@ int rayTracerMPI()
         printf("Worker rank %d: start\n", world_rank);
         ThreadPool pool{get_nprocs()};
         std::atomic_int tasks_count; // for debug purposes (or rather measurement)
-        Renderer* renderer = DRenderer::create();
+        DRenderer renderer;
 
         bool terminated = false;
         while(!terminated) {
@@ -483,8 +455,8 @@ int rayTracerMPI()
                     break;
                 }
                 tasks_count++;
-                pool.pushTask([input, renderer, &tasks_count](int thread_id){
-                      DRenderer::renderTile(renderer, input);
+                pool.pushTask([input, &renderer, &tasks_count](int thread_id){
+                      renderer.renderTile(input);
 
 //                    {
 //                        std::lock_guard<std::mutex> lk{debug_output};
@@ -512,59 +484,16 @@ int rayTracerMPI()
         printf("Worker rank %d: stop\n", world_rank);
         // Wait for all threads done
         pool.shutdown();
-        DRenderer::writeImage(renderer);
-        DRenderer::destroy(renderer);
-
-        // std::vector<std::thread> worker_threads;
-        // const int nprocs = get_nprocs();
-        // printf("Worker rank: %d  starts threads: %d\n", world_rank, nprocs);
-        // for (int i = 0; i < nprocs; i++) {
-        //     worker_threads.push_back(std::thread{workerJob});
-        // }
-        // for (auto& th: worker_threads) {
-        //     th.join();
-        // }
+        renderer.writeImage();
         printf("Worker rank: %d  done\n", world_rank);
     }
 
-    //MPI_Barrier(MPI_COMM_WORLD);
     // Finalize the MPI environment. No more MPI calls can be made after this
     MPI_Finalize();
     return 0;
 }
 
 
-int main(int argc, char **argv) {
+int main(int, char **) {
     return rayTracerMPI();
-//    Renderer *r = DRenderer::create();
-//    DRenderer::render(r);
-//    DRenderer::destroy(r);
-
-    return 0;
 }
-
-
-int main2(int argc, char **argv) {
-    //return rayTracerMPI(argc, argv);
-
-    const auto task = [](int thread_id){
-        {
-            std::lock_guard<std::mutex> lk{debug_output};
-            std::cout << "Thread: " << thread_id << " task: xxx  START\n";
-        }
-            int r = std::rand() % 4 + 1;
-            sleep(r);
-        {
-            std::lock_guard<std::mutex> lk{debug_output};
-            std::cout << "Thread: " << thread_id << " task: xxx  DONE\n";
-        }
-    };
-
-    ThreadPool tp{3};
-    for (int i = 0; i < 10; i++) {
-        tp.pushTask(task);
-    }
-    tp.shutdown();
-    return 0;
-}
-
