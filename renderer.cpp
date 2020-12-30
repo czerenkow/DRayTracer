@@ -22,11 +22,9 @@ using std::endl;
 
 struct Renderer {
     Image image{frame_columns, frame_rows};
-    const float aspect = float{frame_columns} / frame_rows;
-    CameraRegular camera{{-3,7,2}, {0,0,0}, {0,0,1}, 40, aspect};
+    CameraRegular camera{{-3,7,2}, {0,0,0}, {0,0,1}, 40, float{frame_columns} / frame_rows /* aspect */};
 
     RTCDevice device;
-    RTCScene scene; // TODO: Do I need to keep it here?
     std::unique_ptr<RayTracer> rt;
 
     glm::vec3 getSample(float xf_rand, const float yf_rand)
@@ -105,14 +103,12 @@ struct Renderer {
         //RTCScene scene = cubeScene(device);
         //RTCScene scene = spheresScene(device);
         auto [scene, geometry_id, data] = spheresSmallScene(device);
-        this->scene = scene;
         rt = std::make_unique<RayTracer>(scene, std::move(data));
     }
 
     ~Renderer() {
-        // TODO: scene release
-        // TODO: free buffers
-        rtcReleaseScene(scene);
+        // TODO: free buffers?
+        // Release device and all referenced things.
         rtcReleaseDevice(device);
     }
 };
