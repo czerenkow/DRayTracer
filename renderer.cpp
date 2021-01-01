@@ -73,7 +73,7 @@ struct Renderer {
     }
 
     void renderAllWithOMP() {
-        #pragma omp parallel for
+        #pragma omp parallel for schedule(dynamic, 1)
         for (std::size_t tile = 0; tile < tiles_rows*tiles_columns; tile++) {
             renderTile(tile);
         }
@@ -136,7 +136,8 @@ DRenderer::~DRenderer() {
 }
 
 void DRenderer::renderAllTiles() {
-    r->renderAllWithThreadPool();
+    r->renderAllWithOMP();
+    //r->renderAllWithThreadPool();
 }
 
 void DRenderer::renderTile(int tile_id) {
