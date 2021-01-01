@@ -34,12 +34,14 @@ mpiexec -f machinefile -n 3 project/DRayTracerMPI
 Output image will be stored in `project` directory.
 
 # Mini benchmark
-I have two machines, and first one is a bit faster than the second one.
+I have two machines, and first one is a bit faster than the second one. Both machines are connected by WiFi network (I cannot find the my cable ;).
 
 Time to calculate image resolution: 1944x1920 and 700 samples/pixel:
+```
 Machine 1: 121 s
 Machine 2: 168 s  (slow)
 MPI version: 105 s
+```
 
 So speedup is respectively 1.15 and 1.6. Far from perfection as perfect speed up should be close to 2. One of the problem is current code is that calculated tiled images are transfered when all calcualtion are done, so network is utilized purely. Also curretly both machines are connected by WiFi network :) It will be improved in next version!
 
