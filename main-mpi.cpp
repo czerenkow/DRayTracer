@@ -26,10 +26,24 @@
 #define MSG_TAG_REGISTER 0
 #define MSG_TAG_WORKER_RESULT 1
 #define MSG_TAG_WORKER_JOB 2
+#define MSG_TAG_WORKER_TILE 3
 
 #define RECV_FREQ_MS 100
 
 constexpr int MAX_ELEMENTS = 300;
+
+#include "image.h"
+#include "constants.h"
+
+using std::cout;
+using std::endl;
+
+
+inline std::ostream& operator<<(std::ostream& os, const glm::vec3& v) {
+    os << '[' << v.x << ',' << v.y << ',' << v.z << ']';
+    return os;
+}
+
 
 void abort_msg(const char msg[])
 {
@@ -38,10 +52,172 @@ void abort_msg(const char msg[])
 }
 
 
-std::mutex debug_output;
+
+struct TileImage
+{
+    int tile_id;
+    float data[TILE_SIZE*TILE_SIZE*3];
+
+    static bool type_done;
+    static MPI_Datatype createMPIType() {
+        // TODO: This is hack.
+        // TODO: It must be freed when not needed
+        static MPI_Datatype TileImage_type;
+        if (!type_done) {
+            int lengths[2] = { 1, TILE_SIZE*TILE_SIZE*3 };
+            const MPI_Aint displacements[2] = { 0, offsetof(TileImage, data) };
+            MPI_Datatype types[2] = { MPI_INT, MPI_FLOAT };
+            if (MPI_SUCCESS != MPI_Type_create_struct(2, lengths, displacements, types, &TileImage_type)) {
+                abort_msg("MPI_Type_create_struct");
+            }
+            if (MPI_SUCCESS != MPI_Type_commit(&TileImage_type))            {
+                abort_msg("MPI_Type_commit");
+            }
+            type_done = true;
+        }
+        return TileImage_type;
+    }
+
+    static void freeMPIType() {
+        if (type_done) {
+            MPI_Datatype TileImage_type = TileImage::createMPIType();
+            MPI_Type_free(&TileImage_type);
+            type_done = false;
+        }
+    }
+
+};
+
+bool TileImage::type_done = false;
+
+void iterateImageTile(const TileInfo& tile, std::function<void(std::size_t cn, std::size_t rn)> callback) {
+    for (std::size_t rn = tile.r_start; rn < tile.r_stop; rn++) {
+        for (std::size_t cn = tile.c_start; cn < tile.c_stop; cn++) {
+            // Sample position (0,0) is bottom left corner of image, but image.setColor(0,0) is
+            // position of top left corner. We need to invert Y axis here.
+            callback(cn, frame_rows - 1 - rn);
+        }
+    }
+}
+
+
+void test_feelImage(Image& image) {
+    for (int i = 0; i < TileInfo::numberOfTiles(); i++) {
+        iterateImageTile(i, [i, &image](std::size_t cn, std::size_t rn) {
+            float f = (float)i / TileInfo::numberOfTiles();
+            image.setColor(cn, rn, glm::vec3{f});
+        });
+    }
+}
+
+
+std::unique_ptr<TileImage> getImageRegion(const Image& image, int tile_id)
+{
+    TileInfo tile(tile_id);
+    std::unique_ptr<TileImage> result = std::make_unique<TileImage>();
+    result->tile_id = tile_id;
+    std::size_t i = 0;
+    iterateImageTile(tile, [&i, &image, result = result.get()](std::size_t cn, std::size_t rn) {
+        auto c = image.getColor(cn, rn);
+        result->data[3*i] = c.r;
+        result->data[3*i + 1] = c.g;
+        result->data[3*i + 2] = c.b;
+        i++;
+    });
+    return result;
+}
+
+
+void test_iterateImageTile() {
+    Image image{frame_columns, frame_rows};
+    test_feelImage(image);
+    image.writeToFileBMP("output.bmp");
+}
+
+
+void fillImageWithRegion(const TileImage& tile, Image& image) {
+    std::size_t i = 0;
+    iterateImageTile(tile.tile_id, [&](std::size_t cn, std::size_t rn) {
+        glm::vec3 c{tile.data[3*i],
+                    tile.data[3*i + 1],
+                    tile.data[3*i + 2]};
+        image.setColor(cn, rn, c);
+        i++;
+    });
+}
+
+
+void test_iterateImageTile2() {
+    Image image{frame_columns, frame_rows};
+    test_feelImage(image);
+    Image image2{frame_columns, frame_rows};
+
+    for (int i = 0; i < TileInfo::numberOfTiles()/2; i++) {
+        auto r = getImageRegion(image, i);
+        fillImageWithRegion(*r, image2);
+    }
+    image2.writeToFileBMP("output.bmp");
+}
+
+
+void workerSendImageTile(const Image& image, int tile_id) {
+    auto tile_data = getImageRegion(image, tile_id);
+
+    MPI_Datatype TileImage_type = TileImage::createMPIType();
+    if (MPI_SUCCESS != MPI_Send(tile_data.get(), 1, TileImage_type, 0 /*master*/, MSG_TAG_WORKER_TILE, MPI_COMM_WORLD))
+    {
+        abort_msg("MPI_Send: workerSendResult");
+    }
+}
 
 
 
+void receiveImageTile(Image& image) {
+    constexpr int tag = MSG_TAG_WORKER_TILE;
+    {
+        int flags = 0;
+        while(!flags) {
+            if (MPI_SUCCESS != MPI_Iprobe(MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &flags, MPI_STATUS_IGNORE)){
+                abort_msg("receiveImageTile: MPI_Iprobe");
+            }
+            msleep(RECV_FREQ_MS);
+        }
+    }
+
+    MPI_Status status;
+    std::unique_ptr<TileImage> result = std::make_unique<TileImage>();
+    MPI_Datatype TileImage_type = TileImage::createMPIType();
+    if (MPI_SUCCESS != MPI_Recv(result.get(), 1, TileImage_type, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &status)) {
+        abort_msg("receiveImageTile: MPI_Recv");
+    }
+
+    cout << "Received tile: " << result->tile_id << endl;
+    // Fill image by received data
+    fillImageWithRegion(*result, image);
+}
+
+
+
+
+struct ImageGather {
+    Image image{frame_columns, frame_rows};
+    std::thread gather_thread;
+
+    ImageGather() {
+    }
+
+    void gatherTiles() {
+        gather_thread = std::thread{[this](){
+            for (int i = 0; i < (int)TileInfo::numberOfTiles(); i++) {
+                receiveImageTile(image);
+            }
+        }};
+    }
+
+    void join() {
+        gather_thread.join();
+    }
+};
 
 
 
@@ -70,7 +246,6 @@ struct WorkerResult
 {
     int worker_rank;
     int input;
-    int result;
 };
 
 
@@ -92,8 +267,8 @@ void masterSendWorkerJob(int rank, const std::vector<int> data) {
 }
 
 
-void workerSendResult(const int* data) {
-    if (MPI_SUCCESS != MPI_Send(data, 2, MPI_INT, 0 /*master*/, MSG_TAG_WORKER_RESULT, MPI_COMM_WORLD))
+void workerSendWorkDone(int tile_id) {
+    if (MPI_SUCCESS != MPI_Send(&tile_id, 1, MPI_INT, 0 /*master*/, MSG_TAG_WORKER_RESULT, MPI_COMM_WORLD))
     {
         abort_msg("MPI_Send: workerSendResult");
     }
@@ -152,7 +327,7 @@ class Master
         masterSendWorkerJob(worker_rank, tasks);
     }
 
-    std::tuple<int, int, int> getNodeResult() {
+    std::pair<int, int> getNodeResult() {
         constexpr int tag = MSG_TAG_WORKER_RESULT;
         {
             int flags = 0;
@@ -165,14 +340,13 @@ class Master
         }
 
         MPI_Status status;
-        int result_raw[2];
-        if (MPI_SUCCESS != MPI_Recv(&result_raw, 2, MPI_INT, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &status)) {
+        int tile_id; // tile_id that the worker calculated
+        if (MPI_SUCCESS != MPI_Recv(&tile_id, 1, MPI_INT, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &status)) {
             abort_msg("wait_for_workers: MPI_Send");
         }
-        const int input = result_raw[0];
-        const int result = result_raw[1];
+        const int input = tile_id;
         const int sender_rank = status.MPI_SOURCE;
-        return std::make_tuple(sender_rank, input, result);
+        return std::make_pair(sender_rank, input);
     }
 
 public:
@@ -211,10 +385,10 @@ public:
         initialSchedule();
 
         while(!allDone()) {
-            const auto [sender_rank, input, result] = getNodeResult();
+            const auto [sender_rank, input] = getNodeResult();
 
-            printf("Mater: got result job rank: %d x=%d y=%d\n", sender_rank, input, result);
-            results.push_back({.worker_rank = sender_rank, .input = input, .result = result});
+            printf("Mater: got result job rank: %d x=%d\n", sender_rank, input);
+            results.push_back({.worker_rank = sender_rank, .input = input});
 
             // Send instruction what to do next.
             if (isMoreJobAvailable()) {
@@ -292,25 +466,36 @@ int rayTracerMPI()
     if (world_rank == 0)
     {
         printf("Master: registration done\n");
-        Master ms{workers, DRenderer::numberOfTiles()};
+        ImageGather image_gather;
+        image_gather.gatherTiles();
+
+        Master ms{workers, tiles_columns*tiles_rows};
         ms.start();
+
         printf("Master results:\n");
         std::map<int, int> stats;
         for(const auto& r: ms.results) {
             stats[r.worker_rank]++;
         }
         for (const auto it: stats) {
-            std::cout << "Node ranks: " <<  it.first << ": " << it.second << '\n';
+            std::cout << "   Node ranks: " <<  it.first << ": " << it.second << '\n';
         }
+        printf("Wait for all images parts\n");
+        image_gather.join(); // wait until all parts of the image are gathered
+        image_gather.image.writeToFileBMP("project/output.bmp");
         printf("Master done\n");
     }
     else
     {
         printf("Worker rank %d: start\n", world_rank);
         ThreadPool pool{get_nprocs()};
-        std::atomic_int tasks_count; // for debug purposes (or rather measurement)
+        std::atomic_int tasks_count = 0; // for debug purposes (or rather measurement)
         DRenderer renderer;
 
+        //ThreadPool pool_2{1};
+        std::mutex mx;
+
+        std::vector<int> inputs;
         bool terminated = false;
         while(!terminated) {
             std::vector<int> input_vector = workerReceiveJob();
@@ -326,38 +511,34 @@ int rayTracerMPI()
                     break;
                 }
                 tasks_count++;
-                pool.pushTask([input, &renderer, &tasks_count](int thread_id){
-                      renderer.renderTile(input);
-
-//                    {
-//                        std::lock_guard<std::mutex> lk{debug_output};
-//                        std::cout << "Thread: " << thread_id << " task: " << input << "  START\n";
-//                    }
-//                        int r = std::rand() % 4 + 1;
-//                        sleep(r);
-//                        int y = input * input;
-//                    {
-//                        std::lock_guard<std::mutex> lk{debug_output};
-//                        std::cout << "Thread: " << thread_id << " task: " << input << "->" << y << "  DONE\n";
-//                    }
+                pool.pushTask([input, &renderer, &tasks_count, &mx, &inputs](int thread_id){
+                    renderer.renderTile(input);
 
                     // informa about results
-                    int tmp[2];
-                    tmp[0] = input;
-                    tmp[1] = 0;
-                    workerSendResult(tmp);
+                    workerSendWorkDone(input);
+                    //pool.pushTask([input, &renderer](int){
+                    //workerSendImageTile(renderer.getImageRef(), input);
+                    //});
+                    {
+                        std::lock_guard lk{mx};
+                        inputs.push_back(input);
+                    }
                     tasks_count--;
                 });
             }
 
             printf("Worker rank %d. Tasks in buffer: %d\n", world_rank, tasks_count.load());
         }
-        printf("Worker rank %d: stop\n", world_rank);
         // Wait for all threads done
         pool.shutdown();
-        renderer.writeImage();
+        printf("Worker rank %d: sending results\n", world_rank);
+        for (int input: inputs) {
+            workerSendImageTile(renderer.getImageRef(), input);
+        }
         printf("Worker rank: %d  done\n", world_rank);
     }
+
+    TileImage::freeMPIType();
 
     // Finalize the MPI environment. No more MPI calls can be made after this
     MPI_Finalize();
@@ -365,6 +546,58 @@ int rayTracerMPI()
 }
 
 
+int testTileTransfer() {
+    // Initialize the MPI environment. The two arguments to MPI Init are not
+    // currently used by MPI implementations, but are there in case future
+    // implementations might need the arguments.
+    MPI_Init(NULL, NULL);
+
+    // Get the number of processes
+    int world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    // Get the rank of the process
+    int world_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+    // Get the name of the processor
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    int name_len;
+    MPI_Get_processor_name(processor_name, &name_len);
+
+    printf(macroStringfy(BUILD_TIME) ". Processor %s, rank %d out of %d processors. CPUs: %d   CPUs available: %d\n",
+           processor_name, world_rank, world_size, get_nprocs_conf(), get_nprocs());
+
+    if (world_rank == 0)
+    {
+        Image image{frame_columns, frame_rows};
+        for (int i = 0; i < TileInfo::numberOfTiles(); i++) {
+            receiveImageTile(image);
+        }
+        image.writeToFileBMP("output.bmp");
+    }
+    else
+    {
+        Image image{frame_columns, frame_rows};
+        test_feelImage(image);
+        for (int i = 0; i < TileInfo::numberOfTiles(); i++) {
+            workerSendImageTile(image, i);
+        }
+    }
+
+    //MPI_Barrier(MPI_COMM_WORLD);
+    TileImage::freeMPIType();
+
+    // Finalize the MPI environment. No more MPI calls can be made after this
+    MPI_Finalize();
+    return 0;
+}
+
+
+
 int main(int, char **) {
+    //test_iterateImageTile2();
+    //return 0;
+    //return testTileTransfer();
     return rayTracerMPI();
 }

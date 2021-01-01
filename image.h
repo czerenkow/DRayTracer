@@ -25,6 +25,10 @@ public:
         data[x + columns * y] = c;
     }
 
+    vec3 getColor(const std::size_t x, const std::size_t y) const {
+        return data[x + columns * y];
+    }
+
     int writeToFileBMP(const char filename[]) const;
     int writeToFilePFM(const char filename[]) const;
 
