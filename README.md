@@ -2,6 +2,10 @@
 Toy ray tracer that is besed on Intel Embree and option to be run run on multiple nodes with MPI.
 In the source tree there is also docker-mpi project included (git subtree of https://github.com/czerenkow/docker-mpi) modified that installs Embree. This allows to run DRayTracer on multiple nodes in order to speed up calculations.
 
+This version is not very flexible as it renders exacly one image :)
+![Renderer output](/doc/output.png)
+
+
 ## Build
 ```
 mkdir DRayTracer-build

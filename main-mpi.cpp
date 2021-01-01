@@ -90,6 +90,7 @@ struct TileImage
 
 bool TileImage::type_done = false;
 
+
 void iterateImageTile(const TileInfo& tile, std::function<void(std::size_t cn, std::size_t rn)> callback) {
     for (std::size_t rn = tile.r_start; rn < tile.r_stop; rn++) {
         for (std::size_t cn = tile.c_start; cn < tile.c_stop; cn++) {
@@ -102,7 +103,7 @@ void iterateImageTile(const TileInfo& tile, std::function<void(std::size_t cn, s
 
 
 void test_feelImage(Image& image) {
-    for (int i = 0; i < TileInfo::numberOfTiles(); i++) {
+    for (int i = 0; i < (int)TileInfo::numberOfTiles(); i++) {
         iterateImageTile(i, [i, &image](std::size_t cn, std::size_t rn) {
             float f = (float)i / TileInfo::numberOfTiles();
             image.setColor(cn, rn, glm::vec3{f});
@@ -152,7 +153,7 @@ void test_iterateImageTile2() {
     test_feelImage(image);
     Image image2{frame_columns, frame_rows};
 
-    for (int i = 0; i < TileInfo::numberOfTiles()/2; i++) {
+    for (int i = 0; i < (int)TileInfo::numberOfTiles()/2; i++) {
         auto r = getImageRegion(image, i);
         fillImageWithRegion(*r, image2);
     }
@@ -224,23 +225,20 @@ struct ImageGather {
 
 struct WorkerInfo
 {
-    //Worker(int worker_rank, int cpus) : worker_rank{worker_rank}, cpus{cpus} {}
-    // Worker& operator=(const Worker& w) {
-    //     wor
-    // }
-
     std::string info()
     {
         std::stringstream ss;
         ss << "rank: " << worker_rank << " cpus: " << cpus;
         return ss.str();
     }
+
     // TODO: WOW: why I can not use const here? (providing that I have constructor)
     // test-distr.cc:27:7: note: ‘Worker& Worker::operator=(const Worker&)’ is implicitly deleted because the default definition would be ill-formed:
     // 27 | class Worker
     int worker_rank;
     int cpus; 
 };
+
 
 struct WorkerResult
 {
@@ -265,6 +263,30 @@ void masterSendWorkerJob(int rank, const std::vector<int> data) {
         abort_msg("MPI_Send");
     }
 }
+
+// Returns the pair (sender_rank, tile_id)
+std::pair<int, int> masterReceiveNodeResult() {
+    constexpr int tag = MSG_TAG_WORKER_RESULT;
+    {
+        int flags = 0;
+        while(!flags) {
+            if (MPI_SUCCESS != MPI_Iprobe(MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &flags, MPI_STATUS_IGNORE)){
+                abort_msg("workerReceiveJob: MPI_Probe");
+            }
+            msleep(RECV_FREQ_MS);
+        }
+    }
+
+    MPI_Status status;
+    int tile_id; // tile_id that the worker calculated
+    if (MPI_SUCCESS != MPI_Recv(&tile_id, 1, MPI_INT, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &status)) {
+        abort_msg("wait_for_workers: MPI_Send");
+    }
+    const int input = tile_id;
+    const int sender_rank = status.MPI_SOURCE;
+    return std::make_pair(sender_rank, input);
+}
+
 
 
 void workerSendWorkDone(int tile_id) {
@@ -327,28 +349,6 @@ class Master
         masterSendWorkerJob(worker_rank, tasks);
     }
 
-    std::pair<int, int> getNodeResult() {
-        constexpr int tag = MSG_TAG_WORKER_RESULT;
-        {
-            int flags = 0;
-            while(!flags) {
-                if (MPI_SUCCESS != MPI_Iprobe(MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &flags, MPI_STATUS_IGNORE)){
-                    abort_msg("workerReceiveJob: MPI_Probe");
-                }
-                msleep(RECV_FREQ_MS);
-            }
-        }
-
-        MPI_Status status;
-        int tile_id; // tile_id that the worker calculated
-        if (MPI_SUCCESS != MPI_Recv(&tile_id, 1, MPI_INT, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &status)) {
-            abort_msg("wait_for_workers: MPI_Send");
-        }
-        const int input = tile_id;
-        const int sender_rank = status.MPI_SOURCE;
-        return std::make_pair(sender_rank, input);
-    }
-
 public:
     Master(std::vector<WorkerInfo> in_workers, int tasks): tile_id_max{tasks} {
         std::cout << "Master: number of tasks: " << tasks << '\n';
@@ -385,7 +385,7 @@ public:
         initialSchedule();
 
         while(!allDone()) {
-            const auto [sender_rank, input] = getNodeResult();
+            const auto [sender_rank, input] = masterReceiveNodeResult();
 
             printf("Mater: got result job rank: %d x=%d\n", sender_rank, input);
             results.push_back({.worker_rank = sender_rank, .input = input});
@@ -511,14 +511,9 @@ int rayTracerMPI()
                     break;
                 }
                 tasks_count++;
-                pool.pushTask([input, &renderer, &tasks_count, &mx, &inputs](int thread_id){
+                pool.pushTask([input, &renderer, &tasks_count, &mx, &inputs](int){
                     renderer.renderTile(input);
-
-                    // informa about results
                     workerSendWorkDone(input);
-                    //pool.pushTask([input, &renderer](int){
-                    //workerSendImageTile(renderer.getImageRef(), input);
-                    //});
                     {
                         std::lock_guard lk{mx};
                         inputs.push_back(input);
@@ -571,7 +566,7 @@ int testTileTransfer() {
     if (world_rank == 0)
     {
         Image image{frame_columns, frame_rows};
-        for (int i = 0; i < TileInfo::numberOfTiles(); i++) {
+        for (int i = 0; i < (int)TileInfo::numberOfTiles(); i++) {
             receiveImageTile(image);
         }
         image.writeToFileBMP("output.bmp");
@@ -580,12 +575,11 @@ int testTileTransfer() {
     {
         Image image{frame_columns, frame_rows};
         test_feelImage(image);
-        for (int i = 0; i < TileInfo::numberOfTiles(); i++) {
+        for (int i = 0; i < (int)TileInfo::numberOfTiles(); i++) {
             workerSendImageTile(image, i);
         }
     }
 
-    //MPI_Barrier(MPI_COMM_WORLD);
     TileImage::freeMPIType();
 
     // Finalize the MPI environment. No more MPI calls can be made after this
@@ -594,10 +588,6 @@ int testTileTransfer() {
 }
 
 
-
 int main(int, char **) {
-    //test_iterateImageTile2();
-    //return 0;
-    //return testTileTransfer();
     return rayTracerMPI();
 }
