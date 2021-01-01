@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <memory>
+#include <sys/sysinfo.h> // number of cpu
 
 //#include <execution>
 //#include <tbb/tbb.h>
@@ -15,6 +16,7 @@
 #include "constants.h"
 #include "camera.h"
 #include "scene.h"
+#include "thread-pool.h"
 
 using std::cout;
 using std::endl;
@@ -70,11 +72,22 @@ struct Renderer {
         renderRegion(t.c_start, t.c_stop, t.r_start, t.r_stop);
     }
 
-    void render() {
+    void renderAllWithOMP() {
         #pragma omp parallel for
         for (std::size_t tile = 0; tile < tiles_rows*tiles_columns; tile++) {
             renderTile(tile);
         }
+        image.writeToFileBMP("output.bmp");
+    }
+
+    void renderAllWithThreadPool() {
+        ThreadPool pool{get_nprocs()};
+        for (std::size_t tile = 0; tile < tiles_rows*tiles_columns; tile++) {
+            pool.pushTask([this, tile](int){
+                renderTile(tile);
+            });
+        }
+        pool.shutdown();
 
         // Different experiments with parallelisation
         //    std::vector<std::size_t> tiles_list(tiles_rows*tiles_columns);
@@ -83,8 +96,6 @@ struct Renderer {
         //    }
         //tbb::parallel_for(std::size_t(0), std::size_t(tiles_rows*tiles_columns), )
         //std::for_each(std::execution::par, std::begin(tiles_list),  std::end(tiles_list), render_tile);
-
-        //image.writeToFileBMP("/home/universe.dart.spb/pwoloszkiewicz/tmp/output.bmp");
         image.writeToFileBMP("output.bmp");
     }
 
@@ -125,7 +136,7 @@ DRenderer::~DRenderer() {
 }
 
 void DRenderer::renderAllTiles() {
-    r->render();
+    r->renderAllWithThreadPool();
 }
 
 void DRenderer::renderTile(int tile_id) {
@@ -140,32 +151,3 @@ Image& DRenderer::getImageRef() {
     return r->image;
 }
 
-
-void testImage() {
-    glm::vec3 vx{1.0f, 0.0f, 0.0f};
-    glm::vec3 vy{0.0f, 1.0f, 0.0f};
-    auto v = glm::cross(vx, vy);
-    //std::cout << v << '\n';
-
-    CameraRegular c{{0.0f, -10.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 40.0f, 1.0f};
-
-    //RTCRay r;
-    //c.getRay(0.0, 0.0, r);
-    cout << c.lower_left_corner_point << '\n';
-
-
-
-    return;
-
-
-    Image im{200,100};
-    im.setColor(0,0, glm::vec3{1.0});
-    im.setColor(1,1, glm::vec3{1.0, 1.0, 0.0});
-    im.setColor(200-1,0, glm::vec3{1.0, 0.0, 0.0});
-    im.setColor(0,100-1, glm::vec3{0.0, 1.0, 0.0});
-    im.setColor(200-1,100-1, glm::vec3{0.0, 0.0, 1.0});
-    im.writeToFileBMP("output.bmp");
-
-
-
-}

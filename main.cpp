@@ -3,9 +3,8 @@
 
 
 int main() {
-    testImage();
-//    DRenderer r;
-//    r.renderAllTiles();
+    DRenderer r;
+    r.renderAllTiles();
     return 0;
 }
 

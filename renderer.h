@@ -45,6 +45,3 @@ public:
 private:
     Renderer* r;
 };
-
-
-void testImage();
